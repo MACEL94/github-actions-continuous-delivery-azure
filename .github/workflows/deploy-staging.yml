@@ -5,8 +5,8 @@ on:
     types: [labeled]
 
 env:
-  DOCKER_IMAGE_NAME: MACEL94-azure-ttt
-  IMAGE_REGISTRY_URL: docker.pkg.github.com
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
   AZURE_WEBAPP_NAME: MACEL94-ttt-app
 
 jobs:
@@ -16,7 +16,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v1
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
       - name: npm install and build webpack
         run: |
           npm install
@@ -31,8 +33,8 @@ jobs:
     needs: build
     name: Build image and store in GitHub Packages
     steps:
-      - name: Checkout
-        uses: actions/checkout@v1
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
       - name: Download built artifact
         uses: actions/download-artifact@main
@@ -40,11 +42,26 @@ jobs:
           name: webpack artifacts
           path: public
 
-      - name: create image and store in Packages
-        uses: mattdavis0351/actions/docker-gpr@1.3.0
+      - name: Log in to the Container registry
+        uses: docker/login-action
         with:
-          repo-token: ${{secrets.GITHUB_TOKEN}}
-          image-name: ${{env.DOCKER_IMAGE_NAME}}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
 
   Deploy-to-Azure:
     runs-on: ubuntu-latest
@@ -58,7 +75,7 @@ jobs:
 
       - uses: azure/docker-login@v1
         with:
-          login-server: ${{env.IMAGE_REGISTRY_URL}}
+          login-server: ${{env.REGISTRY}}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
@@ -66,7 +83,7 @@ jobs:
         uses: azure/webapps-deploy@v2
         with:
           app-name: ${{env.AZURE_WEBAPP_NAME}}
-          images: ${{env.IMAGE_REGISTRY_URL}}/${{ github.repository }}/${{env.DOCKER_IMAGE_NAME}}:${{ github.sha }}
+          images: ${{env.REGISTRY}}/${{ github.repository }}/${{env.IMAGE_NAME}}:${{ github.sha }}
 
       - name: Azure logout
         run: |
